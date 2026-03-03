@@ -10,8 +10,24 @@ known_peers = {}
 peers_lock = threading.Lock()
 
 # --- NETWORK DISCOVERY ---
-def get_my_ip(): # TODO will this work when we don't have internet access outside our local network though?
-    """Instantly gets the local IP address."""
+def get_my_ip():
+    """Gets the local IP address without relying on an active internet connection."""
+    
+    # Strategy 1: Local Broadcast (Works offline on a LAN)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        # Connecting to a broadcast address forces the OS to pick the local LAN interface
+        s.connect(("255.255.255.255", 1))
+        my_ip = s.getsockname()[0]
+        s.close()
+        # Ensure we didn't accidentally grab a loopback address
+        if my_ip and not my_ip.startswith("127."):
+            return my_ip
+    except Exception:
+        pass
+
+    # The Google DNS hack (Works if there's a default internet gateway)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -19,7 +35,10 @@ def get_my_ip(): # TODO will this work when we don't have internet access outsid
         s.close()
         return my_ip
     except Exception:
-        return "127.0.0.1"
+        pass
+
+    # The fallback
+    return "127.0.0.1"
 
 # --- NETWORK SENDING FUNCTIONS ---
 def send_via_tcp(ip, port, message, timeout=2):
