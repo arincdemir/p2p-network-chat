@@ -13,7 +13,7 @@ peers_lock = threading.Lock()
 def get_my_ip():
     """Gets the local IP address without relying on an active internet connection."""
     
-    # Strategy 1: Local Broadcast (Works offline on a LAN)
+    # Local Broadcast (Works offline on a LAN)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
