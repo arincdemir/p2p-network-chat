@@ -1,8 +1,8 @@
 FROM ubuntu:latest
 
-# Install python, Nmap's ncat, and pip
+# Install python and pip
 RUN apt update && \
-    apt install -y python3 python3-pip python3-venv netcat-openbsd nmap && \
+    apt install -y python3 python3-pip python3-venv && \
     apt clean all
 
 # Create a virtual environment in /opt/venv
@@ -14,7 +14,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt .
 
-# Install psutil into the virtual environment
+# Install dependencies into the virtual environment
 RUN pip install -r requirements.txt
 
 # Set the working directory inside the container
