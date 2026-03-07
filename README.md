@@ -31,7 +31,6 @@ python3 p2p_app.py
 
 | Key | Action |
 | --- | --- |
-| `Ctrl+D` | Rescan the network for peers |
 | `Ctrl+Q` | Quit the application |
 
 ## Docker

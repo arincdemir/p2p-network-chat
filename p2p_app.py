@@ -4,9 +4,17 @@ import socket
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, RichLog, Label, ListView, ListItem
+from typing import Dict, List
+import time
 
 PORT = 12487
-known_peers = {}
+known_peers: Dict[str, List[str | float]] = {}
+# known_peers structure:
+#   key   : str   -> peer name
+#   value : [str, float] -> [peer IP address, last_seen timestamp]
+# Example: {"Alice": ["192.168.1.10", 1700000000]}
+ASK_PERIOD = 1.0
+KNOWN_PEER_TIMEOUT = 4.0
 peers_lock = threading.Lock()
 
 # --- NETWORK DISCOVERY ---
@@ -85,7 +93,6 @@ class P2PChatApp(App):
     """
 
     BINDINGS = [
-        ("ctrl+d", "discover", "Discover Peers"),
         ("ctrl+q", "quit", "Quit"),
     ]
 
@@ -123,9 +130,9 @@ class P2PChatApp(App):
 
         ask_listener_thread = threading.Thread(target=self.listen_for_asks, daemon=True)
         ask_listener_thread.start()
-        
-        # Automatically trigger a background scan so the user doesn't have to wait or press Ctrl+D
-        self.action_discover()
+
+        discovery_thread = threading.Thread(target=self.periodic_discover_and_cleanup, daemon=True)
+        discovery_thread.start()
 
     # --- UI EVENT HANDLERS ---
     def on_list_view_selected(self, event: ListView.Selected):
@@ -160,12 +167,13 @@ class P2PChatApp(App):
             return
 
         with peers_lock:
-            receiver_ip = known_peers.get(receiver_name)
+            peer_entry = known_peers.get(receiver_name)
+            receiver_ip = peer_entry[0] if peer_entry else None
         if receiver_ip:
             t = threading.Thread(target=self._send_message_worker, args=(receiver_name, receiver_ip, content), daemon=True)
             t.start()
         else:
-            self.notify(f"User '{receiver_name}' not found. Press Ctrl+D to discover.", title="Error", severity="error")
+            self.notify(f"User '{receiver_name}' not found. Peers are discovered automatically.", title="Error", severity="error")
 
     # --- UI LOGGING / STATE UPDATE METHODS ---
     def _store_and_print(self, tab_name: str, msg_markup: str):
@@ -188,17 +196,42 @@ class P2PChatApp(App):
         self.peers_list.clear()
         with peers_lock:
             peers_snapshot = dict(known_peers)
-        for name, ip in peers_snapshot.items():
+        for name, (ip, _last_seen) in peers_snapshot.items():
             if name != self.my_name:
                 item = ListItem(Label(f"👤 {name}\n  [dim]{ip}[/dim]"))
                 item.peer_name = name
                 self.peers_list.append(item)
 
     # --- ACTIONS & BACKGROUND WORKERS ---
-    def action_discover(self) -> None:
-        self.log_system("Scanning network for peers in the background...")
-        send_type_ask(PORT, self.my_ip)
-                    
+    def periodic_discover_and_cleanup(self):
+        """Periodically broadcasts ASK and removes peers that have timed out."""
+        while True:
+            send_type_ask(PORT, self.my_ip)
+
+            now = time.time()
+            removed = []
+            with peers_lock:
+                stale = [name for name, (ip, last_seen) in known_peers.items()
+                         if now - last_seen > KNOWN_PEER_TIMEOUT]
+                for name in stale:
+                    del known_peers[name]
+                    removed.append(name)
+
+            if removed:
+                for name in removed:
+                    self.call_from_thread(self.log_system, f"{name} timed out and was removed.")
+                self.call_from_thread(self.update_peers_list)
+                if self.active_peer in removed:
+                    self.active_peer = None
+                    self.call_from_thread(self.chat_log.clear)
+                    input_widget = self.query_one(Input)
+                    self.call_from_thread(
+                        setattr, input_widget, "placeholder",
+                        "Select a peer from the sidebar to start chatting..."
+                    )
+
+            time.sleep(ASK_PERIOD)
+
     def _send_message_worker(self, receiver_name, receiver_ip, content):
         success = send_type_message(receiver_ip, PORT, self.my_name, self.my_ip, content)
         
@@ -267,7 +300,7 @@ class P2PChatApp(App):
                 if peer_name and peer_ip and peer_name != self.my_name:
                     with peers_lock:
                         is_new = peer_name not in known_peers
-                        known_peers[peer_name] = peer_ip
+                        known_peers[peer_name] = (peer_ip, time.time())
                     if is_new:
                         self.call_from_thread(self.log_system, f"Discovered {peer_name} at {peer_ip}!")
                     self.call_from_thread(self.update_peers_list)
@@ -279,8 +312,5 @@ if __name__ == "__main__":
     my_name = input("Enter your username: ").strip()
     
     my_ip = get_my_ip()
-    with peers_lock:
-        known_peers[my_name] = my_ip
-
     app = P2PChatApp(my_name, my_ip)
     app.run()
