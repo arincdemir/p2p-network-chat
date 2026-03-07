@@ -4,21 +4,21 @@ import socket
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, RichLog, Label, ListView, ListItem
-from typing import Dict, List
+from typing import Dict, List, Tuple, Optional
 import time
 
-PORT = 12487
-known_peers: Dict[str, List[str | float]] = {}
+PORT: int = 12487
+known_peers: Dict[str, Tuple[str, float]] = {}
 # known_peers structure:
 #   key   : str   -> peer name
 #   value : [str, float] -> [peer IP address, last_seen timestamp]
 # Example: {"Alice": ["192.168.1.10", 1700000000]}
-ASK_PERIOD = 1.0
-KNOWN_PEER_TIMEOUT = 4.0
-peers_lock = threading.Lock()
+ASK_PERIOD: float = 1.0
+KNOWN_PEER_TIMEOUT: float = 4.0
+peers_lock: threading.Lock = threading.Lock()
 
 # --- NETWORK DISCOVERY ---
-def get_my_ip():
+def get_my_ip() -> str:
     """Gets the local IP address without relying on an active internet connection."""
     
     # Local Broadcast (Works offline on a LAN)
@@ -49,7 +49,7 @@ def get_my_ip():
     return "127.0.0.1"
 
 # --- NETWORK SENDING FUNCTIONS ---
-def send_via_tcp(ip, port, message, timeout=2):
+def send_via_tcp(ip: str, port: int, message: str, timeout: int = 2) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         if timeout:
             s.settimeout(timeout)
@@ -60,21 +60,21 @@ def send_via_tcp(ip, port, message, timeout=2):
         except socket.error:
             return False
         
-def broadcast_via_udp(port, message):
+def broadcast_via_udp(port: int, message: str) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         broadcast_addr = ("255.255.255.255", port)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.sendto(message.encode('utf-8'), broadcast_addr)
 
-def send_type_message(destination_ip, destination_port, sender_name, sender_ip, payload):
+def send_type_message(destination_ip: str, destination_port: int, sender_name: str, sender_ip: str, payload: str) -> bool:
     message_dict = {"type": "MESSAGE", "SENDER_IP": sender_ip, "SENDER_NAME": sender_name, "PAYLOAD": payload}
     return send_via_tcp(destination_ip, destination_port, json.dumps(message_dict))
 
-def send_type_ask(destination_port, sender_ip):
+def send_type_ask(destination_port: int, sender_ip: str) -> None:
     message_dict = {"type": "ASK", "SENDER_IP": sender_ip}
     broadcast_via_udp( destination_port, json.dumps(message_dict))
 
-def send_type_reply(destination_ip, destination_port, my_name, my_ip):
+def send_type_reply(destination_ip: str, destination_port: int, my_name: str, my_ip: str) -> None:
     message_dict = {"type": "REPLY", "RECEIVER_NAME": my_name, "RECEIVER_IP": my_ip}
     send_via_tcp(destination_ip, destination_port, json.dumps(message_dict))
 
@@ -96,15 +96,15 @@ class P2PChatApp(App):
         ("ctrl+q", "quit", "Quit"),
     ]
 
-    def __init__(self, my_name, my_ip):
+    def __init__(self, my_name: str, my_ip: str) -> None:
         super().__init__()
-        self.my_name = my_name
-        self.my_ip = my_ip
-        self.active_hosts = []
+        self.my_name: str = my_name
+        self.my_ip: str = my_ip
+        self.active_hosts: List[str] = []
         
         # --- STATE MANAGEMENT ---
-        self.active_peer = None 
-        self.chat_history = {} 
+        self.active_peer: Optional[str] = None 
+        self.chat_history: Dict[str, List[str]] = {} 
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -117,7 +117,7 @@ class P2PChatApp(App):
                 yield ListView(id="peers-list")
         yield Footer()
 
-    def on_mount(self) -> ComposeResult:
+    def on_mount(self) -> None:
         self.chat_log = self.query_one("#chat-log", RichLog)
         self.peers_list = self.query_one("#peers-list", ListView)
         
@@ -135,7 +135,7 @@ class P2PChatApp(App):
         discovery_thread.start()
 
     # --- UI EVENT HANDLERS ---
-    def on_list_view_selected(self, event: ListView.Selected):
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.active_peer = getattr(event.item, "peer_name", None)
         self.chat_log.clear()
         
@@ -176,7 +176,7 @@ class P2PChatApp(App):
             self.notify(f"User '{receiver_name}' not found. Peers are discovered automatically.", title="Error", severity="error")
 
     # --- UI LOGGING / STATE UPDATE METHODS ---
-    def _store_and_print(self, tab_name: str, msg_markup: str):
+    def _store_and_print(self, tab_name: str, msg_markup: str) -> None:
         if tab_name not in self.chat_history:
             self.chat_history[tab_name] = []
         self.chat_history[tab_name].append(msg_markup)
@@ -184,15 +184,15 @@ class P2PChatApp(App):
         if self.active_peer == tab_name:
             self.chat_log.write(msg_markup)
 
-    def log_system(self, text: str, is_error=False):
+    def log_system(self, text: str, is_error: bool = False) -> None:
         severity = "error" if is_error else "information"
         self.notify(text, title="System", severity=severity)
 
-    def log_message(self, tab_name: str, display_name: str, text: str, is_me=False):
+    def log_message(self, tab_name: str, display_name: str, text: str, is_me: bool = False) -> None:
         color = "cyan" if is_me else "green"
         self._store_and_print(tab_name, f"[[{color}]{display_name}[/{color}]] {text}")
 
-    def update_peers_list(self):
+    def update_peers_list(self) -> None:
         self.peers_list.clear()
         with peers_lock:
             peers_snapshot = dict(known_peers)
@@ -203,7 +203,7 @@ class P2PChatApp(App):
                 self.peers_list.append(item)
 
     # --- ACTIONS & BACKGROUND WORKERS ---
-    def periodic_discover_and_cleanup(self):
+    def periodic_discover_and_cleanup(self) -> None:
         """Periodically broadcasts ASK and removes peers that have timed out."""
         while True:
             send_type_ask(PORT, self.my_ip)
@@ -232,7 +232,7 @@ class P2PChatApp(App):
 
             time.sleep(ASK_PERIOD)
 
-    def _send_message_worker(self, receiver_name, receiver_ip, content):
+    def _send_message_worker(self, receiver_name: str, receiver_ip: str, content: str) -> None:
         success = send_type_message(receiver_ip, PORT, self.my_name, self.my_ip, content)
         
         if success:
@@ -244,7 +244,7 @@ class P2PChatApp(App):
             self.call_from_thread(self.update_peers_list)
 
     # --- LISTENING FUNCTION FOR TCP MESSAGES ---
-    def listen_for_messages(self):
+    def listen_for_messages(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.my_ip, PORT))
@@ -262,14 +262,14 @@ class P2PChatApp(App):
                         self.handle_received_message(buffer.decode("utf-8"))
 
     # --- UDP LISTEN FUNCTION FOR ASK BROADCASTS ---
-    def listen_for_asks(self):
+    def listen_for_asks(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.bind(("0.0.0.0", PORT))
             while True:
                 data, addr = s.recvfrom(1024)
                 self.handle_received_ask(data.decode("utf-8"))
 
-    def handle_received_ask(self, raw_message: str):
+    def handle_received_ask(self, raw_message: str) -> None:
         try:
             data = json.loads(raw_message.strip())
             msg_type = data.get("type")
@@ -284,7 +284,7 @@ class P2PChatApp(App):
             self.call_from_thread(self.log_system, f"Raw Text Received: {raw_message}", is_error=True)
 
 
-    def handle_received_message(self, raw_message: str):
+    def handle_received_message(self, raw_message: str) -> None:
         try:
             data = json.loads(raw_message.strip())
             msg_type = data.get("type")
@@ -309,8 +309,8 @@ class P2PChatApp(App):
             self.call_from_thread(self.log_system, f"Raw Text Received: {raw_message}", is_error=True)
 
 if __name__ == "__main__":
-    my_name = input("Enter your username: ").strip()
+    my_name: str = input("Enter your username: ").strip()
     
-    my_ip = get_my_ip()
+    my_ip: str = get_my_ip()
     app = P2PChatApp(my_name, my_ip)
     app.run()
