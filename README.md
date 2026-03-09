@@ -81,9 +81,12 @@ A direct chat message sent via TCP.
 { "type": "MESSAGE", "SENDER_IP": "192.168.1.10", "SENDER_NAME": "bob", "PAYLOAD": "Hello!" }
 ```
 
+## Who I Tested With
+
+I tested it with the implementation of my friend Dağhan Erdönmez
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE)
 
-## Who I Tested With
-I tested it with the implementation of my friend Dağhan Erdönmez
+https://github.com/arincdemir/p2p-network-chat
